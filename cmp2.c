@@ -111,13 +111,19 @@ void b_write (adr a, byte val)
 }
 
 
-void load_file ( )
+void load_file (char * file)
 {
     unsigned int a;
     unsigned int b;
     unsigned int val;
     int i = 0;
-    FILE *f = stdin;
+    FILE *f = NULL;
+    f = fopen(file, "r");
+    if (f == NULL)
+    {
+		perror("file");
+        exit (1);
+    }
     while (fscanf (f, "%x%x", &a, &b) == 2)
     {
         for (i = a; i < (a + b); i++)
@@ -127,6 +133,8 @@ void load_file ( )
             b_write (i,val);
         }
     }
+    fclose (f);
+    run(a);
 }
 
 
@@ -188,8 +196,10 @@ void do_unknown ()
 }
 
 
-int main ()
+int main (int argc, char * argv[])
 {
-load_file( );
-return 0;
+    int i = 0;
+    load_file(argv[1]);
+    run(01000);
+    return 0;
 }
