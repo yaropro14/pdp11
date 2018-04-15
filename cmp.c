@@ -2,17 +2,15 @@
 # include <assert.h>
 # include <stdlib.h>
 
-
 typedef unsigned char byte;
 typedef unsigned short int word;
 typedef word adr;
 
-
 byte mem [64 * 1024];
 word reg [8];
+FILE * com;
 
 # define pc reg[7]
-
 
 # define NO_PARAM 0
 # define HAS_SS 1
@@ -20,23 +18,28 @@ word reg [8];
 # define HAS_NN (1 << 2)
 # define HAS_XX (1 << 3)
 
-
 # define LO(x) ((x) & 0xFF)
 # define HI(x) (((x) >> 8) & 0xFF)
 
 
 void test_mem ();
-byte b_read  (adr a);            
-void b_write (adr a, byte val);  
+  
 word w_read  (adr a);
-void w_write (adr a, word val);            
+void w_write (adr a, word val);
+byte b_read  (adr a);            
+void b_write (adr a, byte val); 
+           
 void load_file ( );
 void mem_dump (adr start, word n);
+void print_reg ();
 struct P_Command create_command (word w);
+void print_command (struct P_Command c);
 void run (adr pc0);
+
 word mode_take (word r, word mode, word b);
 word mode_take_np (word r, word mode, word b);
 void mode_push_dd (word r, word mode, word b, word val);
+
 void do_halt (struct P_Command PC); // ?
 void do_mov (struct P_Command PC); // ?
 void do_add (struct P_Command PC); // ?
@@ -146,29 +149,33 @@ void load_file (char * file)
         }
     }
     fclose (f);
-    //mem_dump (a, b);
+    mem_dump (a, b);
 }
 
 
 void mem_dump (adr start, word n)
 {
     assert (start % 2 == 0);
+    FILE * f = fopen ("cmp.o", "w");
     int i = 0;
     for(i = 0; i < n; i = i + 2)
     {
-        printf("%06o : %06o\n", (start + i), w_read((adr)(start + i)));
+        fprintf(f, "%06o : %06o\n", (start + i), w_read((adr)(start + i)));
     }
+    fclose (f);
 }
 
 
 void print_reg ()
 {
 	int i = 0;
-	printf ("Print registers\n");
+	FILE * f = fopen ("registers.txt", "w");
+	fprintf (f, "Print registers\n");
 	for (i = 0; i < 8; i ++)
 	{
-		printf("reg[%d] = %o\n", i, reg[i]);
+		fprintf(f, "reg[%d] = %o\n", i, reg[i]);
 	}
+	fclose(f);
 }
 
 
@@ -202,6 +209,7 @@ void run (adr pc0)
 {
 	pc = (word) pc0;
 	int i = 0;
+	com = fopen("com.txt", "w");
 	while (1)
 	{
 		word w = w_read(pc);
@@ -220,12 +228,13 @@ void run (adr pc0)
 			}
 		}
 	}
+	fclose(com);
 }
 
 
 void do_halt (struct P_Command PC)
 {
-	printf ("halt\n");
+	fprintf (com, "halt\n");
 	print_reg();
 	exit (0);
 }
@@ -234,29 +243,29 @@ void do_halt (struct P_Command PC)
 void do_mov (struct P_Command PC)
 {
 	word ss = 0;
-	printf ("mov ");
+	fprintf (com, "mov ");
 	ss = mode_take (PC.r1, PC.mode_r1, PC.B);
-	printf (" , ");
+	fprintf (com, " , ");
 	mode_push_dd (PC.r2, PC.mode_r2, PC.B, ss);
-	printf ("\n");
+	fprintf (com, "\n");
 }
 
 
 void do_add (struct P_Command PC)
 {
 	word ss = 0, dd = 0;
-	printf ("add ");
+	fprintf (com, "add ");
 	ss = mode_take (PC.r1, PC.mode_r1, PC.B);
 	dd = mode_take_np (PC.r2, PC.mode_r2, PC.B);
-	printf (" , ");
+	fprintf (com, " , ");
 	mode_push_dd (PC.r2, PC.mode_r2, PC.B, (ss + dd));
-	printf ("\n");
+	fprintf (com, "\n");
 }
 
 
 void do_unknown (struct P_Command PC)
 {
-	printf ("unknown\n");
+	fprintf (com, "unknown\n");
 }
 
 
@@ -272,17 +281,17 @@ word mode_take (word r, word mode, word b)
 	{
 		case 0:
 		{
-			printf ("R%o", r);
+			fprintf (com, "R%o", r);
 			return reg[r];
 		}
 		case 1:
 		{
-			printf ("@R%o", r);
+			fprintf (com, "@R%o", r);
 			return w_read ((adr) reg[r]);
 		}
 		case 2:
 		{
-			printf ("#%o", w_read ((adr) reg[r]));
+			fprintf (com, "#%o", w_read ((adr) reg[r]));
 			if (r == 7 || r == 6 || b == 0)
 			{
 				reg[r] += 2;
@@ -296,7 +305,7 @@ word mode_take (word r, word mode, word b)
 		}
 		case 3:
 		{
-			printf ("@#%o", w_read((adr) (reg[r])));
+			fprintf (com, "@#%o", w_read((adr) (reg[r])));
 			if (r == 7 || r == 6 || b == 0)
 			{
 				reg[r] += 2;
@@ -310,15 +319,14 @@ word mode_take (word r, word mode, word b)
 		}
 		case 4:
 		{
-			printf ("-(R%o)", r);
+			fprintf (com, "-(R%o)", r);
 			reg[r] -= 2;
 			return w_read ((adr) reg[r]);
 			
 		}
 		case 5:
 		{
-			printf ("-(R%o)", r);
-			printf ("-(R%o)", r);
+			fprintf (com, "-(R%o)", r);
 			reg[r] -= 2;
 			return w_read ((adr) w_read ((adr) reg[r]));
 		}
@@ -386,24 +394,24 @@ void mode_push_dd (word r, word mode, word b, word val)
 	switch (mode)
 	{
 		case 0:
-			printf ("R%o ", r);
+			fprintf (com, "R%o ", r);
 			reg[r] = val;
 			break;
 		case 1:
-			printf ("@R%o ", r);
+			fprintf (com, "@R%o ", r);
 			w_write ((adr) reg[r], val);
 			break;
 		case 2: //								????????
 			if (r == 7 || r == 6 || b == 0)
 			{
-				printf ("#%o ", w_read((adr) reg[r]));
+				fprintf (com, "#%o ", w_read((adr) reg[r]));
 				w_write (reg[r], val);
 				reg[r] += 2;
 				break;
 			}
 			else 
 			{
-				printf ("#R%o ", r);
+				fprintf (com, "#R%o ", r);
 				w_write (reg[r], val);
 				reg[r] ++;
 				break;
@@ -412,27 +420,27 @@ void mode_push_dd (word r, word mode, word b, word val)
 			reg[r] += 2;
 			if (r == 7 || r == 6 || b == 0)
 			{
-				printf ("#R%o ", r);
+				fprintf (com, "#R%o ", r);
 				w_write (reg[r], val);
 				reg[r] += 2;
 			}
 			else 
 			{
-				printf ("#R%o ", r);
+				fprintf (com, "#R%o ", r);
 				w_write (reg[r], val);
 				reg[r] ++;
 			}
 			break;
 		case 4:
 		{
-			printf ("-(R%o) ", r);
+			fprintf (com, "-(R%o) ", r);
 			reg[r] -= 2;
 			w_write ((adr) reg[r], val);
 			break;
 		}
 		case 5:
 		{
-			printf ("@-(R%o) ", r);
+			fprintf (com, "@-(R%o) ", r);
 			reg[r] -= 2;
 			w_write ((adr) w_read((adr) reg[2]), val);
 			break;
