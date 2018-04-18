@@ -181,13 +181,15 @@ void mem_dump (adr start, word n)
 void print_reg ()
 {
 	int i = 0;
-	//FILE * f = fopen ("registers.txt", "w");
+	FILE * f = fopen ("registers.txt", "w");
 	fprintf (com, "Print registers\n");
+	fprintf (f, "Print registers\n");
 	for (i = 0; i < 8; i ++)
 	{
 		fprintf(com, "reg[%d] = %o\n", i, reg[i]);
+		fprintf(f, "reg[%d] = %o\n", i, reg[i]);
 	}
-	//fclose(f);
+	fclose(f);
 }
 
 
@@ -237,14 +239,14 @@ void run (adr pc0)
 			{
 				fprintf (com, "%06o : %06o \t", pc - 2, w);
 				fprintf (com, "%s ", cmd.name);
+				if (cmd.param & HAS_SS)
+				{
+					ss = get_mode (PC.r1, PC.mode_r1, PC.B);
+					fprintf (com, " , ");
+				}
 				if (cmd.param & HAS_DD)
 				{
 					dd = get_mode (PC.r2, PC.mode_r2, PC.B);
-				}
-				if (cmd.param & HAS_SS)
-				{
-					fprintf (com, " , ");
-					ss = get_mode (PC.r1, PC.mode_r1, PC.B);
 				}
 				if (cmd.param & HAS_NN)
 				{
