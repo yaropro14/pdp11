@@ -8,7 +8,13 @@ typedef word adr;
 
 byte mem [64 * 1024];
 word reg [8];
+byte n;
+byte z;
+byte v;
+byte c;
+
 FILE * com;
+FILE * flag; 
 
 # define pc reg[7]
 # define REG 1
@@ -23,6 +29,20 @@ FILE * com;
 # define HI(x) (((x) >> 8) & 0xFF)
 
 
+union offsetof
+{
+	char a;
+	unsigned char b;
+} xx, x;
+
+
+union valu
+{
+	short int a;
+	unsigned short int b;
+} y;
+
+
 void test_mem ();
   
 word w_read  (adr a);
@@ -32,20 +52,27 @@ void b_write (adr a, byte val);
            
 void load_file ( );
 void mem_dump (adr start, word n);
+void mem_dump_all (adr start, word n);
 void print_reg ();
 struct P_Command create_command (word w);
 void print_command (struct P_Command c);
+void print_status_flags();
+
 void run (adr pc0);
 
 struct mr get_mode (word r, word mode, word b);
 void get_nn (word w);
+void get_xx (word w);
 
 void do_halt (struct P_Command PC);
 void do_mov (struct P_Command PC);
+void do_movb (struct P_Command PC);
 void do_add (struct P_Command PC);
-void do_unknown (struct P_Command PC);
 void do_sob (struct P_Command PC);
-void do_clr (struct P_Command PC); 
+void do_clr (struct P_Command PC);
+void do_beq (struct P_Command PC);
+void do_br (struct P_Command PC); 
+void do_unknown (struct P_Command PC);
 
 
 struct P_Command
@@ -78,12 +105,15 @@ struct Command
 	byte param;
 } commands [] = 
 {
-	{00,	0177777,	"halt",		do_halt,	NO_PARAM		},
+	{00,	0177777,		"halt",		do_halt,	NO_PARAM		},
 	{0010000,	0170000,	"mov",		do_mov, 	HAS_SS | HAS_DD	},
+	{0110000,	0170000,	"movb",		do_mov, 	HAS_SS | HAS_DD	},
 	{0060000, 	0170000,	"add",		do_add,		HAS_DD | HAS_SS	},
 	{077000,	0177000,	"sob",		do_sob,		HAS_NN			},
 	{005000, 	0177000,	"clr",		do_clr,		HAS_DD			},
-	{00,	0,			"unknown",	do_unknown,	NO_PARAM		}
+	{001400,	0xff00,		"beq",		do_beq,		HAS_XX			},
+	{000400,	0xff00,		"br",		do_br,		HAS_XX			},
+	{00,		0,			"unknown",	do_unknown,	NO_PARAM		}
 };
 
 
@@ -167,6 +197,7 @@ void load_file (char * file)
 
 void mem_dump (adr start, word n)
 {
+	mem_dump_all (start, n);
     assert (start % 2 == 0);
     FILE * f = fopen ("cmp.o", "w");
     int i = 0;
@@ -178,17 +209,39 @@ void mem_dump (adr start, word n)
 }
 
 
+void mem_dump_all (adr start, word n)
+{
+	assert (start % 2 == 0);
+    FILE * f = fopen ("all_mem", "w");
+    int i = 0;
+    for(i = 0; i < start + n; i = i + 2)
+    {
+        fprintf(f, "%06o : %06o\n", (i), w_read((adr)(i)));
+    }
+    fclose (f);
+}
+
+
 void print_reg ()
 {
 	int i = 0;
 	FILE * f = fopen ("registers.txt", "w");
 	fprintf (com, "Print registers\n");
 	fprintf (f, "Print registers\n");
-	for (i = 0; i < 8; i ++)
+	for (i = 0; i < 8; i += 2)
 	{
-		fprintf(com, "reg[%d] = %o\n", i, reg[i]);
-		fprintf(f, "reg[%d] = %o\n", i, reg[i]);
+		fprintf(com, "reg[%d] = %o\t", i, reg[i]);
+		fprintf(f, "reg[%d] = %o\t", i, reg[i]);
 	}
+	fprintf(com, "\n");
+	fprintf(f, "\n");
+	for (i = 1; i < 9; i += 2)
+	{
+		fprintf(com, "reg[%d] = %o\t", i, reg[i]);
+		fprintf(f, "reg[%d] = %o\t", i, reg[i]);
+	}
+	fprintf(com, "\n");
+	fprintf(f, "\n");
 	fclose(f);
 }
 
@@ -219,11 +272,19 @@ void print_command (struct P_Command c)
 }
 
 
+void print_status_flags()
+{
+	fprintf (flag, "%x,\t%x,\t%x,\t%x\n", n, z, v, c);             
+}
+
+
 void run (adr pc0)
 {
 	pc = (word) pc0;
 	int i = 0;
 	com = fopen("com.txt", "w");
+	flag = fopen ("status_flags.txt", "w"); 
+	fprintf (com, "------------------------------running------------------------------\n");
 	while (1)
 	{
 		word w = w_read(pc);
@@ -252,20 +313,29 @@ void run (adr pc0)
 				{
 					get_nn (w);
 				}
+				if (cmd.param & HAS_XX)
+				{
+					get_xx (w);
+				}
 				cmd.func(PC);
+				print_status_flags();
 				//print_reg ();
 				break;
 			}
 		}
 	}
 	fclose(com);
+	fclose (flag);  
 }
 
 
 void do_halt (struct P_Command PC)
 {
 	fprintf (com, "\n");
+	fprintf (com, "------------------------------halted------------------------------\n");
 	print_reg();
+	fprintf(com, "print flags\n");
+	fprintf(com, "n = %o,\tz = %o,\tv = %o,\tc = %o\n", n, z, v, c);
 	exit (0);
 }
 
@@ -273,6 +343,20 @@ void do_halt (struct P_Command PC)
 void do_mov (struct P_Command PC)
 {
 	dd.res = ss.val;
+	if (ss.val == 0)
+	{
+		z = 1;
+	}
+	else if (ss.val > 0)
+	{
+		n = 0;
+		z = 0;
+	}
+	else 
+	{
+		n = 1;
+		z = 0;
+	}
 	if (dd.space == REG)
 	{
 		reg[dd.ad] = dd.res;
@@ -285,9 +369,60 @@ void do_mov (struct P_Command PC)
 }
 
 
+void do_movb (struct P_Command PC)
+{
+	if (ss.val == 0)
+	{
+		z = 1;
+	}
+	else if (ss.val > 0)
+	{
+		n = 0;
+		z = 0;
+	}
+	else 
+	{
+		n = 1;
+		z = 0;
+	}
+	if (dd.space == REG)
+	{
+			reg[dd.ad] = dd.res;
+	}
+	else
+	{
+		b_write (dd.ad, (byte) dd.res);
+	}
+	fprintf (com, "\n");
+}
+
+
 void do_add (struct P_Command PC)
 {
 	dd.res = dd.val + ss.val;
+	c = dd.res >> 15;
+	if (ss.val > 0 && dd.val > 0 && dd.res < 0)
+	{
+		v = 1;
+		n = 1;
+	}
+	else if (ss.val < 0 && dd.val < 0 && dd.res > 0)
+	{
+		v = 1;
+		n = 1;
+	}
+	else if (dd.res == 0)
+	{
+		z = 1;
+	}
+	else if (dd.res > 0)
+	{
+		n = 0;
+	}
+	else 
+	{
+		n = 1;
+	}
 	if (dd.space == REG)
 	{
 		reg[dd.ad] = dd.res;
@@ -303,6 +438,8 @@ void do_add (struct P_Command PC)
 void do_unknown (struct P_Command PC)
 {
 	fprintf (com, "unknown\n");
+	print_reg();
+	exit (0);
 }
 
 
@@ -319,17 +456,32 @@ void do_sob (struct P_Command PC)
 
 void do_clr (struct P_Command PC)
 {
+	n = 0;
+	z = 1;
+	v = 0;
+	c = 0;
 	w_write (dd.ad, 0);
 	fprintf (com, "\n");
 }
 
 
-void get_nn (word w)
+void do_beq (struct P_Command PC)
 {
-	nn.ad = (w >> 6) & 07;
-	nn.val = w & 077;
-	fprintf (com, "R%o , #%o", nn.ad, nn.val);
-	//fprintf(com, "------\n%o\n------\n", w);
+	if (z == 1)
+		do_br (PC);
+	else
+	{
+		fprintf (com, "%o", pc + 2 * xx.a);
+		fprintf (com, "\n");
+	}
+}
+
+
+void do_br (struct P_Command PC)
+{
+	pc += 2 * xx.a;
+	fprintf (com, "%o", pc);
+	fprintf (com, "\n");
 }
 
 
@@ -366,8 +518,10 @@ struct mr get_mode (word r, word mode, word b)
 			else
 			{
 				fprintf (com, "(R%o)+", r);
+				x.b = b_read ((adr) reg[r]);
+				y.b = x.a;
 				hh.ad =  reg[r];
-				hh.val = b_read ((adr) reg[r]);
+				hh.val = y.a;
 				hh.space = MEM;
 				reg[r] ++;
 			}
@@ -375,9 +529,9 @@ struct mr get_mode (word r, word mode, word b)
 		}
 		case 3:
 		{
-			fprintf (com, "@#%o", w_read((adr) (reg[r])));
 			if (r == 7 || r == 6 || b == 0)
 			{
+				fprintf (com, "@#%o", w_read((adr) (reg[r])));
 				hh.ad = w_read ((adr) reg[r]);
 				hh.val = w_read ((adr) w_read ((adr) (reg[r])));
 				hh.space = MEM;
@@ -385,8 +539,11 @@ struct mr get_mode (word r, word mode, word b)
 			}
 			else
 			{
+				fprintf (com, "@(R%o)+", r);
+				x.b = b_read ((adr) w_read ((adr) (reg[r])));
+				y.b = x.a;
 				hh.ad = w_read ((adr) reg[r]);
-				hh.val = b_read ((adr) w_read ((adr) (reg[r])));
+				hh.val = y.a;
 				hh.space = MEM;
 				reg[r] ++;
 			}
@@ -406,8 +563,10 @@ struct mr get_mode (word r, word mode, word b)
 			else 
 			{
 				reg[r] --;
+				x.b = b_read ((adr) reg[r]);
+				y.b = x.a;
 				hh.ad = reg[r];
-				hh.val = b_read ((adr) reg[r]);
+				hh.val = y.a;
 				hh.space = MEM;
 				break;
 			}
@@ -423,6 +582,21 @@ struct mr get_mode (word r, word mode, word b)
 		}
 	}
 	return hh;
+}
+
+
+void get_nn (word w)
+{
+	nn.ad = (w >> 6) & 07;
+	nn.val = w & 077;
+	fprintf (com, "R%o , #%o", nn.ad, nn.val);
+	//fprintf(com, "------\n%o\n------\n", w);
+}
+
+
+void get_xx (word w)
+{
+	xx.b = w & 0xff;
 }
 
 
