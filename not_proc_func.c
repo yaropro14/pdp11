@@ -13,7 +13,7 @@
 # define HAS_DD (1 << 1)
 # define HAS_NN (1 << 2)
 # define HAS_XX (1 << 3)
-# define COMMANDS_LEN 9
+# define COMMANDS_LEN 23
 
 
 extern byte mem [64 * 1024];
@@ -193,7 +193,7 @@ void print_command (struct P_Command c)
 
 void print_status_flags()
 {
-	fprintf (flag, "%x,\t%x,\t%x,\t%x\n", n, z, v, c);             
+	fprintf (com, "%x,\t%x,\t%x,\t%x\n", n, z, v, c);             
 }
 
 
@@ -208,6 +208,7 @@ void run (adr pc0)
 	fprintf (com, "------------------------------\n");
 	while (pc < 17777)
 	{
+		//fprintf (com, "%o\n", pc);
 		word w = w_read(pc);
 		//printf("%o\n", w);
 		pc += 2;
@@ -219,16 +220,21 @@ void run (adr pc0)
 			struct Command cmd = commands[i];
 			if ((w & commands[i].mask) == commands[i].opcode)
 			{
+				word NN = w_read(pc);
+				//fprintf (com, "NN = %o\n", NN);
+				//fprintf (com, "pc = %o\n", pc);
 				fprintf (com, "%06o : %06o \t", pc - 2, w);
 				fprintf (com, "%s\t", cmd.name);
 				if (cmd.param & HAS_SS)
 				{
-					ss = get_mode (PC.r1, PC.mode_r1, PC.B);
+					ss = get_mode (PC.r1, PC.mode_r1, PC.B, NN);
+					//fprintf (com, "\n%o/n",w_read((adr) (reg[7])));    /////////
 					fprintf (com, " , ");
 				}
 				if (cmd.param & HAS_DD)
 				{
-					dd = get_mode (PC.r2, PC.mode_r2, PC.B);
+					//fprintf (com, "\n%o/n",w_read((adr) (reg[7])));    ////////////
+					dd = get_mode (PC.r2, PC.mode_r2, PC.B, NN);
 				}
 				if (cmd.param & HAS_NN)
 				{
@@ -241,7 +247,9 @@ void run (adr pc0)
 				cmd.func(PC);
 				print_status_flags();
 				mem_dump_all (1000, 1000);
-				//print_reg ();
+				//fprintf (com, "\n%o/n",w_read((adr) (reg[7])));
+				print_reg ();
+				//print_status_flags();
 				break;
 			}
 		} 
